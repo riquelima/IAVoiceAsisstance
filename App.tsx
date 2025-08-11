@@ -213,7 +213,7 @@ const App: React.FC = () => {
       // Reset the silence timeout every time new audio is received.
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
       // Increased timeout to improve experience on mobile or in noisy environments.
-      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 2000); // Stop after 2s of silence
+      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 3000); // Stop after 3s of silence
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -260,7 +260,8 @@ const App: React.FC = () => {
         if (playPromise !== undefined) {
             playPromise.then(() => {
                 responseAudio.pause();
-                responseAudio.src = ''; // Clear src to ready it for the real audio
+                // By not clearing the src, we keep the audio element "primed",
+                // which can help with playback reliability on mobile browsers.
             }).catch(error => {
                 console.warn('Silent audio play() failed, but user interaction was captured.', error);
             });

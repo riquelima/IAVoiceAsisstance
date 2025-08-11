@@ -107,48 +107,39 @@ const App: React.FC = () => {
         throw new Error(`Erro na resposta do servidor: ${response.statusText}`);
       }
 
-      const blob = await response.blob();
-      const audioEl = responseAudioRef.current;
-      
-      if (!audioEl) {
-        throw new Error("Elemento de áudio de resposta não encontrado.");
-      }
-      
-      const audioURL = URL.createObjectURL(blob);
-      
-      if (audioEl.src && audioEl.src.startsWith('blob:')) {
-        URL.revokeObjectURL(audioEl.src);
-      }
-      
-      const cleanupAndReset = () => {
-        if (audioEl.src && audioEl.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audioEl.src);
-        }
-        setStatus(AssistantStatus.IDLE);
-        isStoppingRef.current = false;
-        audioEl.onplay = null;
-        audioEl.onended = null;
-        audioEl.onerror = null;
-      };
-
-      audioEl.src = audioURL;
-      audioEl.load();
-
-      audioEl.onplay = () => setStatus(AssistantStatus.PLAYING);
-      audioEl.onended = cleanupAndReset;
-      audioEl.onerror = (e) => {
-        console.error("Erro ao tocar áudio:", e);
+      if (!audioContextRef.current) {
+        console.error("AudioContext não foi inicializado.");
         setStatus(AssistantStatus.ERROR);
-        setStatusText("Falha ao tocar o áudio.");
-        cleanupAndReset();
-      };
-      
-      await audioEl.play().catch(e => {
-          console.error("Falha ao iniciar a reprodução de áudio:", e);
-          setStatus(AssistantStatus.ERROR);
-          setStatusText("Clique para permitir a reprodução de áudio.");
-          cleanupAndReset();
-      });
+        setStatusText("Contexto de áudio não iniciado.");
+        isStoppingRef.current = false;
+        return;
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
+      const audioContext = audioContextRef.current;
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+
+      audioContext.decodeAudioData(arrayBuffer)
+        .then(audioBuffer => {
+            setStatus(AssistantStatus.PLAYING);
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.onended = () => {
+              setStatus(AssistantStatus.IDLE);
+              isStoppingRef.current = false;
+            };
+            source.start(0);
+        })
+        .catch(e => {
+            console.error("Erro ao decodificar dados de áudio:", e);
+            setStatus(AssistantStatus.ERROR);
+            setStatusText("Falha ao decodificar áudio.");
+            isStoppingRef.current = false;
+        });
 
     } catch (err) {
       console.error("Erro ao enviar ou processar resposta:", err);
@@ -327,9 +318,6 @@ const App: React.FC = () => {
       }
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
-      }
-      if (responseAudioRef.current && responseAudioRef.current.src.startsWith('blob:')) {
-          URL.revokeObjectURL(responseAudioRef.current.src);
       }
     };
   }, []);

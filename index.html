@@ -10,32 +10,39 @@
     /* Custom animations to be used with Tailwind classes */
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.2); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 1; }
+    }
+    @keyframes pulse-fast {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
     }
     @keyframes vibrate {
       0% { transform: scale(1.05); }
       50% { transform: scale(1.15); }
       100% { transform: scale(1.05); }
     }
-    @keyframes glow {
-      from { box-shadow: 0 0 40px #ff00ff88; }
-      to { box-shadow: 0 0 60px #ff00ffcc; }
-    }
     @keyframes glow-cyan {
       from { box-shadow: 0 0 40px #00ffff88; }
       to { box-shadow: 0 0 60px #00ffff; }
     }
+    @keyframes glow-red {
+      from { box-shadow: 0 0 40px #ff000088; }
+      to { box-shadow: 0 0 60px #ff0000cc; }
+    }
     .animation-pulse {
       animation: pulse 2s infinite;
+    }
+    .animation-pulse-fast {
+      animation: pulse-fast 1s infinite;
     }
     .animation-vibrate {
       animation: vibrate 0.4s infinite;
     }
-    .animation-glow {
-      animation: glow 1.2s ease-in-out infinite alternate;
-    }
     .animation-glow-cyan {
       animation: glow-cyan 1.5s ease-in-out infinite alternate;
+    }
+    .animation-glow-red {
+      animation: glow-red 1.2s ease-in-out infinite alternate;
     }
   </style>
 <script type="importmap">

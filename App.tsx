@@ -117,7 +117,7 @@ const App: React.FC = () => {
   const startRecognition = useCallback(() => {
     if (!SpeechRecognition) {
       setStatus(AssistantStatus.ERROR);
-      setStatusText('Reconhecimento de voz não é suportado neste navegador.');
+      setStatusText('Reconhecimento de voz não é suportado.');
       return;
     }
     
@@ -152,7 +152,7 @@ const App: React.FC = () => {
       }
       silenceTimeoutRef.current = setTimeout(() => {
         stopAndProcess();
-      }, 1500); // Increased delay for better experience
+      }, 1500);
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -185,7 +185,10 @@ const App: React.FC = () => {
         setStatusText("Clique para falar");
         break;
       case AssistantStatus.LISTENING:
-        // Text is set by onresult
+        // Text is set by onresult, but have a fallback
+        if (!statusText.startsWith(lastTranscriptRef.current)) {
+          setStatusText("Ouvindo...");
+        }
         break;
       case AssistantStatus.PROCESSING:
         setStatusText("Processando...");
@@ -194,7 +197,10 @@ const App: React.FC = () => {
         setStatusText("Respondendo...");
         break;
       case AssistantStatus.ERROR:
-        // Text is set by the error handler
+        // Text is set by the error handler, but have a fallback
+        if (!statusText.startsWith("Erro:")) {
+            setStatusText("Ocorreu um erro");
+        }
         break;
     }
   }, [status]);
@@ -210,58 +216,50 @@ const App: React.FC = () => {
       }
     };
   }, []);
-
-  const getOrbClasses = () => {
-    let base = 'w-52 h-52 rounded-full flex items-center justify-center z-10 transition-all duration-300 ease-in-out';
-    switch (status) {
-      case AssistantStatus.LISTENING:
-        return `${base} bg-gradient-radial from-teal-400 to-cyan-700 shadow-[0_0_50px_#00ffff]`;
-      case AssistantStatus.PLAYING: // No longer rendered, but kept for logic consistency
-        return `${base} bg-gradient-radial from-fuchsia-500 to-purple-800 shadow-[0_0_50px_rgba(255,0,255,0.6)]`;
-      default:
-        return `${base} bg-gradient-radial from-cyan-400 to-cyan-800 shadow-[0_0_40px_rgba(0,255,255,0.53)]`;
-    }
-  };
   
-  const getRingClasses = () => {
-    let base = 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-60 h-60 rounded-full pointer-events-none z-0';
-    switch (status) {
-        case AssistantStatus.LISTENING:
-            return `${base} animation-vibrate shadow-[0_0_30px_rgba(0,255,255,0.34)]`;
-        case AssistantStatus.PLAYING: // No longer rendered
-            return `${base} animation-glow`;
-        default:
-            return `${base} animation-pulse shadow-[0_0_30px_rgba(0,255,255,0.34)]`;
-    }
-  };
+  const getCircleClasses = () => {
+    const base = "absolute w-40 h-40 rounded-full bg-black/30";
+    const shadowIdle = "shadow-[0_0_50px_rgba(0,255,255,0.4)]";
+    const shadowListening = "shadow-[0_0_70px_rgba(0,255,255,0.9)]";
+    const shadowPlaying = "shadow-[0_0_60px_rgba(0,255,255,0.7)]";
+    const shadowError = "shadow-[0_0_60px_rgba(255,0,0,0.8)]";
 
+    switch(status) {
+        case AssistantStatus.LISTENING:
+            return `${base} animation-vibrate ${shadowListening}`;
+        case AssistantStatus.PROCESSING:
+            return `${base} animation-pulse-fast ${shadowIdle}`;
+        case AssistantStatus.PLAYING:
+            return `${base} animation-glow-cyan ${shadowPlaying}`;
+        case AssistantStatus.ERROR:
+            return `${base} animation-glow-red ${shadowError}`;
+        case AssistantStatus.IDLE:
+        default:
+            return `${base} animation-pulse ${shadowIdle}`;
+    }
+  }
+  
+  const isClickable = status === AssistantStatus.IDLE || status === AssistantStatus.ERROR || status === AssistantStatus.LISTENING;
 
   return (
     <main className="bg-black text-white font-sans flex flex-col justify-center items-center h-screen m-0 overflow-hidden">
-      {status === AssistantStatus.PLAYING ? (
-        <div className="relative w-[250px] h-40 flex items-center justify-center">
-          <div 
-            className="absolute left-0 top-0 w-40 h-40 rounded-full bg-black/30 animation-glow-cyan" 
-            style={{ animationDuration: '2.4s' }}
-          ></div>
-          <div 
-            className="absolute right-0 top-0 w-40 h-40 rounded-full bg-black/30 animation-glow-cyan" 
-            style={{ animationDuration: '2.4s', animationDelay: '-1.2s' }}
-          ></div>
-        </div>
-      ) : (
         <div 
-            className="relative w-60 h-60 flex items-center justify-center cursor-pointer"
-            onClick={handleOrbClick}
-            title="Clique para falar com a IA"
+            className={`relative w-60 h-40 flex items-center justify-center ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
+            onClick={isClickable ? handleOrbClick : undefined}
+            title={isClickable ? "Clique para falar com a IA" : ""}
         >
-            <div id="ring" className={getRingClasses()}></div>
-            <div id="orb" className={getOrbClasses()}></div>
+            <div 
+                className={getCircleClasses()}
+                style={{ left: 0, top: 0, animationDelay: '0s' }}
+            ></div>
+            <div 
+                className={getCircleClasses()}
+                style={{ right: 0, top: 0, animationDelay: '-1s' }}
+            ></div>
+            <div className="absolute text-lg text-gray-400 font-light italic pointer-events-none text-center px-4">
+                {statusText}
+            </div>
         </div>
-      )}
-      <div className="mt-8 text-lg text-gray-400 font-light italic min-h-[28px]">
-        {statusText}
-      </div>
       <audio ref={beepAudioRef} src="https://cdn.jsdelivr.net/gh/pixelbrackets/g-sounds/sounds/sfx/beep.mp3" preload="auto"></audio>
     </main>
   );

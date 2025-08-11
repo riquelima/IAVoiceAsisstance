@@ -192,20 +192,22 @@ const App: React.FC = () => {
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript;
+      // Rebuild the transcript from scratch each time for robustness, especially on mobile.
+      let final_transcript = '';
+      let interim_transcript = '';
+      for (let i = 0; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          finalTranscript += transcript;
+          final_transcript += event.results[i][0].transcript;
         } else {
-          interimTranscript += transcript;
+          interim_transcript += event.results[i][0].transcript;
         }
       }
 
-      lastTranscriptRef.current += finalTranscript;
-      setStatusText(lastTranscriptRef.current + interimTranscript || "Ouvindo...");
+      lastTranscriptRef.current = final_transcript.trim();
+      setStatusText((final_transcript + interim_transcript).trim() || "Ouvindo...");
 
+
+      // Reset the silence timeout every time new audio is received.
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 1500); // Stop after 1.5s of silence
     };
@@ -223,9 +225,9 @@ const App: React.FC = () => {
       }
     };
 
-    recognition.onend = () => {
-       stopAndProcess();
-    };
+    // By leaving onend empty, we prevent the browser from prematurely stopping recognition.
+    // The app is now in full control via the silence timer or user click.
+    recognition.onend = () => {};
     
     try {
       recognition.start();

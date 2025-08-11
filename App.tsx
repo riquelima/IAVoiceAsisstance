@@ -132,6 +132,7 @@ const App: React.FC = () => {
       };
 
       audioEl.src = audioURL;
+      audioEl.load();
 
       audioEl.onplay = () => setStatus(AssistantStatus.PLAYING);
       audioEl.onended = cleanupAndReset;
@@ -360,7 +361,7 @@ const App: React.FC = () => {
         <div className="mt-5 text-lg text-gray-400 font-light italic text-center px-4">
             {statusText}
         </div>
-      <audio ref={beepAudioRef} src="https://actions.google.com/sounds/v1/household/scanner_beep.ogg" preload="auto"></audio>
+      <audio ref={beepAudioRef} src="https://actions.google.com/sounds/v1/alarms/beep_short.mp3" preload="auto"></audio>
       <audio ref={responseAudioRef} preload="auto"></audio>
     </main>
   );

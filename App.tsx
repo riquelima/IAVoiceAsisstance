@@ -51,7 +51,6 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AssistantStatus>(AssistantStatus.IDLE);
   const [statusText, setStatusText] = useState('Clique para falar');
   
-  // Ref to hold the current status to avoid stale closures in callbacks
   const statusRef = useRef(status);
   useEffect(() => {
     statusRef.current = status;
@@ -60,6 +59,7 @@ const App: React.FC = () => {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTranscriptRef = useRef<string>('');
+  const isStoppingRef = useRef<boolean>(false);
   
   const beepAudioRef = useRef<HTMLAudioElement>(null);
   const responseAudioRef = useRef<HTMLAudioElement>(null);
@@ -68,29 +68,29 @@ const App: React.FC = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const stopAndProcess = useCallback(async () => {
-    // Guard: only proceed if we are in the listening state.
-    // This prevents race conditions from multiple triggers (e.g., timeout and onend).
-    if (statusRef.current !== AssistantStatus.LISTENING) {
+    if (isStoppingRef.current || statusRef.current !== AssistantStatus.LISTENING) {
       return;
     }
-    
-    if (recognitionRef.current) {
-      // Detach handlers to prevent onend from firing again and stop recognition
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
+    isStoppingRef.current = true;
     
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = null;
     }
 
+    if (recognitionRef.current) {
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+    }
+
     const transcript = lastTranscriptRef.current.trim();
     if (transcript === '') {
       setStatus(AssistantStatus.IDLE);
+      isStoppingRef.current = false;
       return;
     }
 
@@ -125,6 +125,7 @@ const App: React.FC = () => {
             URL.revokeObjectURL(audioEl.src);
         }
         setStatus(AssistantStatus.IDLE);
+        isStoppingRef.current = false;
         audioEl.onplay = null;
         audioEl.onended = null;
         audioEl.onerror = null;
@@ -156,6 +157,7 @@ const App: React.FC = () => {
       } else {
           setStatusText("Erro ao falar com a IA");
       }
+      isStoppingRef.current = false;
     }
   }, []);
 
@@ -168,6 +170,7 @@ const App: React.FC = () => {
     
     if (recognitionRef.current) {
         recognitionRef.current.stop();
+        recognitionRef.current = null;
     }
     
     if (beepAudioRef.current) {
@@ -175,6 +178,7 @@ const App: React.FC = () => {
     }
 
     lastTranscriptRef.current = '';
+    isStoppingRef.current = false;
     const recognition = new SpeechRecognition();
     recognition.lang = 'pt-BR';
     recognition.interimResults = true;
@@ -190,15 +194,17 @@ const App: React.FC = () => {
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = '';
       let finalTranscript = '';
-      for (let i = 0; i < event.results.length; ++i) {
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          finalTranscript += transcript;
         } else {
-          interimTranscript += event.results[i][0].transcript;
+          interimTranscript += transcript;
         }
       }
-      lastTranscriptRef.current = finalTranscript;
-      setStatusText(finalTranscript + interimTranscript || "Ouvindo...");
+
+      lastTranscriptRef.current += finalTranscript;
+      setStatusText(lastTranscriptRef.current + interimTranscript || "Ouvindo...");
 
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 1500); // Stop after 1.5s of silence
@@ -206,10 +212,11 @@ const App: React.FC = () => {
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('Erro no reconhecimento de voz:', event.error, event.message);
+      if (isStoppingRef.current) return;
       setStatus(AssistantStatus.ERROR);
       if (event.error === 'no-speech') {
         setStatusText("Não ouvi nada. Tente de novo.");
-      } else if (event.error === 'not-allowed') {
+      } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setStatusText("A permissão do microfone foi negada.");
       } else {
         setStatusText(`Erro de microfone: ${event.error}`);
@@ -217,10 +224,7 @@ const App: React.FC = () => {
     };
 
     recognition.onend = () => {
-       if (statusRef.current === AssistantStatus.LISTENING) {
-          stopAndProcess();
-       }
-       recognitionRef.current = null;
+       stopAndProcess();
     };
     
     try {
@@ -261,7 +265,10 @@ const App: React.FC = () => {
         setStatusText("Clique para falar");
         break;
       case AssistantStatus.LISTENING:
-        setStatusText("Ouvindo...");
+        // Set initial listening text here, but allow onresult to override
+        if (!lastTranscriptRef.current) {
+            setStatusText("Ouvindo...");
+        }
         break;
       case AssistantStatus.PROCESSING:
         setStatusText("Processando...");
@@ -269,8 +276,8 @@ const App: React.FC = () => {
       case AssistantStatus.PLAYING:
         setStatusText("Respondendo...");
         break;
-      // Error text is now set directly in the error handlers for more specific messages.
       case AssistantStatus.ERROR:
+        // Error text is now set directly in the error handlers for more specific messages.
         break;
     }
   }, [status]);

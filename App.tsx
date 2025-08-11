@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { AssistantStatus } from './types';
 
@@ -51,13 +50,19 @@ const App: React.FC = () => {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTranscriptRef = useRef<string>('');
+  
   const beepAudioRef = useRef<HTMLAudioElement>(null);
+  const responseAudioRef = useRef<HTMLAudioElement>(null);
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const stopAndProcess = useCallback(async () => {
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Silently catch errors if recognition is already stopped
+      }
     }
     
     if (silenceTimeoutRef.current) {
@@ -84,24 +89,49 @@ const App: React.FC = () => {
       }
 
       const blob = await response.blob();
+      const audioEl = responseAudioRef.current;
+      
+      if (!audioEl) {
+        throw new Error("Elemento de áudio de resposta não encontrado.");
+      }
+      
       const audioURL = URL.createObjectURL(blob);
-      const audio = new Audio(audioURL);
+      
+      if (audioEl.src && audioEl.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioEl.src);
+      }
+      
+      const cleanupAndReset = () => {
+        if (audioEl.src && audioEl.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioEl.src);
+        }
+        setStatus(AssistantStatus.IDLE);
+        audioEl.onplay = null;
+        audioEl.onended = null;
+        audioEl.onerror = null;
+      };
 
-      audio.onplay = () => {
+      audioEl.src = audioURL;
+
+      audioEl.onplay = () => {
         setStatus(AssistantStatus.PLAYING);
       };
 
-      audio.onended = () => {
-        URL.revokeObjectURL(audioURL);
-        setStatus(AssistantStatus.IDLE);
-      };
+      audioEl.onended = cleanupAndReset;
 
-      audio.onerror = (e) => {
+      audioEl.onerror = (e) => {
         console.error("Erro ao tocar áudio:", e);
         setStatus(AssistantStatus.ERROR);
+        setStatusText("Falha ao tocar o áudio.");
+        cleanupAndReset();
       };
-
-      audio.play();
+      
+      audioEl.play().catch(e => {
+          console.error("Falha ao iniciar a reprodução de áudio:", e);
+          setStatus(AssistantStatus.ERROR);
+          setStatusText("Clique para permitir a reprodução de áudio.");
+          cleanupAndReset();
+      });
 
     } catch (err) {
       console.error("Erro ao enviar ou processar resposta:", err);
@@ -122,7 +152,7 @@ const App: React.FC = () => {
     }
     
     if (beepAudioRef.current) {
-        beepAudioRef.current.play().catch(e => console.error("Error playing beep:", e));
+        beepAudioRef.current.play().catch(e => console.error("Erro ao tocar o bipe:", e));
     }
 
     lastTranscriptRef.current = '';
@@ -162,9 +192,10 @@ const App: React.FC = () => {
     };
 
     recognition.onend = () => {
-       if (status === AssistantStatus.LISTENING) {
+       if (recognitionRef.current && status === AssistantStatus.LISTENING) {
           stopAndProcess();
        }
+       recognitionRef.current = null;
     };
     
     recognition.start();
@@ -185,10 +216,7 @@ const App: React.FC = () => {
         setStatusText("Clique para falar");
         break;
       case AssistantStatus.LISTENING:
-        // Text is set by onresult, but have a fallback
-        if (!statusText.startsWith(lastTranscriptRef.current)) {
-          setStatusText("Ouvindo...");
-        }
+        setStatusText("Ouvindo...");
         break;
       case AssistantStatus.PROCESSING:
         setStatusText("Processando...");
@@ -197,8 +225,7 @@ const App: React.FC = () => {
         setStatusText("Respondendo...");
         break;
       case AssistantStatus.ERROR:
-        // Text is set by the error handler, but have a fallback
-        if (!statusText.startsWith("Erro:")) {
+        if (!statusText.startsWith("Erro") && !statusText.includes("Falha")) {
             setStatusText("Ocorreu um erro");
         }
         break;
@@ -206,13 +233,15 @@ const App: React.FC = () => {
   }, [status]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
+      }
+      if (responseAudioRef.current && responseAudioRef.current.src.startsWith('blob:')) {
+          URL.revokeObjectURL(responseAudioRef.current.src);
       }
     };
   }, []);
@@ -261,6 +290,7 @@ const App: React.FC = () => {
             </div>
         </div>
       <audio ref={beepAudioRef} src="https://cdn.jsdelivr.net/gh/pixelbrackets/g-sounds/sounds/sfx/beep.mp3" preload="auto"></audio>
+      <audio ref={responseAudioRef} preload="auto"></audio>
     </main>
   );
 };

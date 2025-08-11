@@ -43,6 +43,9 @@ declare global {
   }
 }
 
+// A tiny, silent audio file as a Base64 string to unlock audio context on mobile.
+const SILENT_AUDIO = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AssistantStatus>(AssistantStatus.IDLE);
@@ -53,6 +56,7 @@ const App: React.FC = () => {
   
   const beepAudioRef = useRef<HTMLAudioElement>(null);
   const responseAudioRef = useRef<HTMLAudioElement>(null);
+  const audioUnlockedRef = useRef<boolean>(false);
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -201,14 +205,28 @@ const App: React.FC = () => {
     recognition.start();
   }, [SpeechRecognition, status, stopAndProcess]);
 
+  const unlockAudio = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    try {
+      const audio = new Audio(SILENT_AUDIO);
+      audio.volume = 0;
+      audio.play().catch(() => {});
+      audioUnlockedRef.current = true;
+      console.log('Audio context unlocked.');
+    } catch (e) {
+      console.error('Could not unlock audio context:', e);
+    }
+  }, []);
 
   const handleOrbClick = useCallback(() => {
+    unlockAudio();
+
     if (status === AssistantStatus.LISTENING) {
       stopAndProcess();
     } else if (status === AssistantStatus.IDLE || status === AssistantStatus.ERROR) {
       startRecognition();
     }
-  }, [status, startRecognition, stopAndProcess]);
+  }, [status, startRecognition, stopAndProcess, unlockAudio]);
   
   useEffect(() => {
     switch (status) {

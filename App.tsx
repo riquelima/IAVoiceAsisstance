@@ -57,7 +57,7 @@ const App: React.FC = () => {
   }, [status]);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptRef = useRef<string>('');
   const isStoppingRef = useRef<boolean>(false);
   
@@ -212,7 +212,8 @@ const App: React.FC = () => {
 
       // Reset the silence timeout every time new audio is received.
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 1500); // Stop after 1.5s of silence
+      // Increased timeout to improve experience on mobile or in noisy environments.
+      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 2000); // Stop after 2s of silence
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -243,18 +244,38 @@ const App: React.FC = () => {
 
   const unlockAudio = useCallback(() => {
     if (audioUnlockedRef.current) return;
+    console.log("Attempting to unlock audio context for mobile...");
+
     try {
-      const audio = new Audio(SILENT_AUDIO);
-      audio.volume = 0;
-      audio.play().catch(() => {});
+      const responseAudio = responseAudioRef.current;
+      const beepAudio = beepAudioRef.current;
+
+      // Prime both audio elements by loading them.
+      if (beepAudio) beepAudio.load();
+      if (responseAudio) {
+        // Playing and pausing a silent sound on the main audio element "primes" it
+        // for later playback that isn't directly inside a user interaction.
+        responseAudio.src = SILENT_AUDIO;
+        const playPromise = responseAudio.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                responseAudio.pause();
+                responseAudio.src = ''; // Clear src to ready it for the real audio
+            }).catch(error => {
+                console.warn('Silent audio play() failed, but user interaction was captured.', error);
+            });
+        }
+      }
+      // Mark as unlocked after the user's first click, regardless of play() success.
+      // The interaction itself is what matters for browsers.
       audioUnlockedRef.current = true;
-      console.log('Audio context unlocked.');
     } catch (e) {
-      console.error('Could not unlock audio context:', e);
+        console.error("Failed to unlock audio context:", e);
     }
   }, []);
 
   const handleOrbClick = useCallback(() => {
+    // This must be the first action to ensure audio playback is allowed on mobile.
     unlockAudio();
 
     if (status === AssistantStatus.LISTENING) {

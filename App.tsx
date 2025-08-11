@@ -50,6 +50,13 @@ const SILENT_AUDIO = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwA
 const App: React.FC = () => {
   const [status, setStatus] = useState<AssistantStatus>(AssistantStatus.IDLE);
   const [statusText, setStatusText] = useState('Clique para falar');
+  
+  // Ref to hold the current status to avoid stale closures in callbacks
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTranscriptRef = useRef<string>('');
@@ -61,16 +68,24 @@ const App: React.FC = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const stopAndProcess = useCallback(async () => {
+    // Guard: only proceed if we are in the listening state.
+    // This prevents race conditions from multiple triggers (e.g., timeout and onend).
+    if (statusRef.current !== AssistantStatus.LISTENING) {
+      return;
+    }
+    
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Silently catch errors if recognition is already stopped
-      }
+      // Detach handlers to prevent onend from firing again and stop recognition
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
     
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
     }
 
     const transcript = lastTranscriptRef.current.trim();
@@ -117,12 +132,8 @@ const App: React.FC = () => {
 
       audioEl.src = audioURL;
 
-      audioEl.onplay = () => {
-        setStatus(AssistantStatus.PLAYING);
-      };
-
+      audioEl.onplay = () => setStatus(AssistantStatus.PLAYING);
       audioEl.onended = cleanupAndReset;
-
       audioEl.onerror = (e) => {
         console.error("Erro ao tocar áudio:", e);
         setStatus(AssistantStatus.ERROR);
@@ -130,7 +141,7 @@ const App: React.FC = () => {
         cleanupAndReset();
       };
       
-      audioEl.play().catch(e => {
+      await audioEl.play().catch(e => {
           console.error("Falha ao iniciar a reprodução de áudio:", e);
           setStatus(AssistantStatus.ERROR);
           setStatusText("Clique para permitir a reprodução de áudio.");
@@ -141,7 +152,7 @@ const App: React.FC = () => {
       console.error("Erro ao enviar ou processar resposta:", err);
       setStatus(AssistantStatus.ERROR);
       if (err instanceof Error) {
-          setStatusText(`Erro: ${err.message}`);
+          setStatusText('Erro de comunicação.');
       } else {
           setStatusText("Erro ao falar com a IA");
       }
@@ -153,6 +164,10 @@ const App: React.FC = () => {
       setStatus(AssistantStatus.ERROR);
       setStatusText('Reconhecimento de voz não é suportado.');
       return;
+    }
+    
+    if (recognitionRef.current) {
+        recognitionRef.current.stop();
     }
     
     if (beepAudioRef.current) {
@@ -168,42 +183,54 @@ const App: React.FC = () => {
 
     recognition.onstart = () => {
       setStatus(AssistantStatus.LISTENING);
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 4000); // Stop if no speech detected within 4s
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      let finalTranscript = '';
+      for (let i = 0; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          lastTranscriptRef.current += event.results[i][0].transcript;
+          finalTranscript += event.results[i][0].transcript;
         } else {
           interimTranscript += event.results[i][0].transcript;
         }
       }
-      setStatusText(lastTranscriptRef.current + interimTranscript || "Ouvindo...");
+      lastTranscriptRef.current = finalTranscript;
+      setStatusText(finalTranscript + interimTranscript || "Ouvindo...");
 
-      if (silenceTimeoutRef.current) {
-        clearTimeout(silenceTimeoutRef.current);
-      }
-      silenceTimeoutRef.current = setTimeout(() => {
-        stopAndProcess();
-      }, 1500);
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = setTimeout(() => stopAndProcess(), 1500); // Stop after 1.5s of silence
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Erro no reconhecimento de voz:', event.error);
+      console.error('Erro no reconhecimento de voz:', event.error, event.message);
       setStatus(AssistantStatus.ERROR);
-      setStatusText(`Erro: ${event.error}`);
+      if (event.error === 'no-speech') {
+        setStatusText("Não ouvi nada. Tente de novo.");
+      } else if (event.error === 'not-allowed') {
+        setStatusText("A permissão do microfone foi negada.");
+      } else {
+        setStatusText(`Erro de microfone: ${event.error}`);
+      }
     };
 
     recognition.onend = () => {
-       if (recognitionRef.current && status === AssistantStatus.LISTENING) {
+       if (statusRef.current === AssistantStatus.LISTENING) {
           stopAndProcess();
        }
        recognitionRef.current = null;
     };
     
-    recognition.start();
-  }, [SpeechRecognition, status, stopAndProcess]);
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Falha ao iniciar o reconhecimento:", e);
+      setStatus(AssistantStatus.ERROR);
+      setStatusText("Não foi possível iniciar o microfone.");
+    }
+  }, [SpeechRecognition, stopAndProcess]);
 
   const unlockAudio = useCallback(() => {
     if (audioUnlockedRef.current) return;
@@ -242,10 +269,8 @@ const App: React.FC = () => {
       case AssistantStatus.PLAYING:
         setStatusText("Respondendo...");
         break;
+      // Error text is now set directly in the error handlers for more specific messages.
       case AssistantStatus.ERROR:
-        if (!statusText.startsWith("Erro") && !statusText.includes("Falha")) {
-            setStatusText("Ocorreu um erro");
-        }
         break;
     }
   }, [status]);
@@ -294,6 +319,7 @@ const App: React.FC = () => {
             className={`relative w-60 h-40 flex items-center justify-center ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
             onClick={isClickable ? handleOrbClick : undefined}
             title={isClickable ? "Clique para falar com a IA" : ""}
+            aria-live="polite"
         >
             <div 
                 className={getCircleClasses()}
@@ -307,7 +333,7 @@ const App: React.FC = () => {
                 {statusText}
             </div>
         </div>
-      <audio ref={beepAudioRef} src="https://cdn.jsdelivr.net/gh/pixelbrackets/g-sounds/sounds/sfx/beep.mp3" preload="auto"></audio>
+      <audio ref={beepAudioRef} src="https://actions.google.com/sounds/v1/household/scanner_beep.ogg" preload="auto"></audio>
       <audio ref={responseAudioRef} preload="auto"></audio>
     </main>
   );

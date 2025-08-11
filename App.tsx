@@ -192,7 +192,7 @@ const App: React.FC = () => {
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      // Rebuild the transcript from scratch each time for robustness, especially on mobile.
+      // Rebuild the transcript from scratch each time for robustness.
       let final_transcript = '';
       let interim_transcript = '';
       for (let i = 0; i < event.results.length; ++i) {
@@ -203,8 +203,10 @@ const App: React.FC = () => {
         }
       }
 
-      lastTranscriptRef.current = final_transcript.trim();
-      setStatusText((final_transcript + interim_transcript).trim() || "Ouvindo...");
+      // Always save the most complete transcript available to ensure the webhook is fired.
+      const full_transcript = (final_transcript + interim_transcript).trim();
+      lastTranscriptRef.current = full_transcript;
+      setStatusText(full_transcript || "Ouvindo...");
 
 
       // Reset the silence timeout every time new audio is received.
@@ -298,49 +300,65 @@ const App: React.FC = () => {
     };
   }, []);
   
-  const getCircleClasses = () => {
-    const base = "absolute w-40 h-40 rounded-full bg-black/30";
-    const shadowIdle = "shadow-[0_0_50px_rgba(0,255,255,0.4)]";
-    const shadowListening = "shadow-[0_0_70px_rgba(0,255,255,0.9)]";
-    const shadowPlaying = "shadow-[0_0_60px_rgba(0,255,255,0.7)]";
-    const shadowError = "shadow-[0_0_60px_rgba(255,0,0,0.8)]";
+  const getOrbClasses = () => {
+    const base = "w-52 h-52 rounded-full flex items-center justify-center transition-all duration-300";
+    const shadowIdle = "shadow-[0_0_40px_rgba(0,255,255,0.5)]";
+    const shadowListening = "shadow-[0_0_50px_#00ffff]";
+    const shadowPlaying = "shadow-[0_0_50px_rgba(255,0,255,0.6)]";
+    const shadowProcessing = "shadow-[0_0_50px_#00ffff]";
+    const shadowError = "shadow-[0_0_50px_rgba(255,0,0,0.7)]";
 
     switch(status) {
         case AssistantStatus.LISTENING:
-            return `${base} animation-vibrate ${shadowListening}`;
+            return `${base} bg-gradient-to-br from-cyan-200 to-teal-600 ${shadowListening}`;
         case AssistantStatus.PROCESSING:
-            return `${base} animation-pulse-fast ${shadowIdle}`;
+             return `${base} bg-gradient-to-br from-cyan-300 to-teal-700 ${shadowProcessing}`;
         case AssistantStatus.PLAYING:
-            return `${base} animation-glow-cyan ${shadowPlaying}`;
+            return `${base} bg-gradient-to-br from-fuchsia-500 to-purple-900 ${shadowPlaying}`;
         case AssistantStatus.ERROR:
-            return `${base} animation-glow-red ${shadowError}`;
+            return `${base} bg-gradient-to-br from-red-500 to-red-900 ${shadowError}`;
         case AssistantStatus.IDLE:
         default:
-            return `${base} animation-pulse ${shadowIdle}`;
+            return `${base} bg-gradient-to-br from-cyan-400 to-cyan-800 ${shadowIdle}`;
     }
-  }
+  };
+
+  const getRingClasses = () => {
+      const base = "absolute w-64 h-64 rounded-full pointer-events-none";
+      const shadowIdle = "shadow-[0_0_30px_rgba(0,255,255,0.3)]";
+      const shadowListening = "shadow-[0_0_40px_rgba(0,255,255,0.7)]";
+      const shadowProcessing = "shadow-[0_0_50px_rgba(0,255,255,0.5)]";
+
+      switch(status) {
+          case AssistantStatus.LISTENING:
+              return `${base} animation-vibrate ${shadowListening}`;
+          case AssistantStatus.PROCESSING:
+              return `${base} animation-pulse-fast ${shadowProcessing}`;
+          case AssistantStatus.PLAYING:
+              return `${base} animation-glow-fuchsia`;
+          case AssistantStatus.ERROR:
+              return `${base} animation-glow-red`;
+          case AssistantStatus.IDLE:
+          default:
+              return `${base} animation-pulse ${shadowIdle}`;
+      }
+  };
   
   const isClickable = status === AssistantStatus.IDLE || status === AssistantStatus.ERROR || status === AssistantStatus.LISTENING;
 
   return (
     <main className="bg-black text-white font-sans flex flex-col justify-center items-center h-screen m-0 overflow-hidden">
         <div 
-            className={`relative w-60 h-40 flex items-center justify-center ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`relative w-64 h-64 flex items-center justify-center ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
             onClick={isClickable ? handleOrbClick : undefined}
             title={isClickable ? "Clique para falar com a IA" : ""}
             aria-live="polite"
         >
-            <div 
-                className={getCircleClasses()}
-                style={{ left: 0, top: 0, animationDelay: '0s' }}
-            ></div>
-            <div 
-                className={getCircleClasses()}
-                style={{ right: 0, top: 0, animationDelay: '-1s' }}
-            ></div>
-            <div className="absolute text-lg text-gray-400 font-light italic pointer-events-none text-center px-4">
-                {statusText}
-            </div>
+            <div className={getRingClasses()}></div>
+            <div className={getOrbClasses()}></div>
+        </div>
+        <div className="mt-5 text-lg text-gray-400 font-light italic text-center px-4">
+            {statusText}
         </div>
       <audio ref={beepAudioRef} src="https://actions.google.com/sounds/v1/household/scanner_beep.ogg" preload="auto"></audio>
       <audio ref={responseAudioRef} preload="auto"></audio>

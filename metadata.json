@@ -1,0 +1,7 @@
+{
+  "name": "Assistente de Voz IA",
+  "description": "Uma interface de assistente de voz que ouve a entrada do usuário, a processa com IA e responde com áudio.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

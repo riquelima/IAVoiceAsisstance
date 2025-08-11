@@ -40,12 +40,10 @@ declare global {
   interface Window {
     SpeechRecognition: { new(): SpeechRecognition };
     webkitSpeechRecognition: { new(): SpeechRecognition };
+    AudioContext: { new(): AudioContext };
+    webkitAudioContext: { new(): AudioContext };
   }
 }
-
-// A tiny, silent audio file as a Base64 string to unlock audio context on mobile.
-const SILENT_AUDIO = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AssistantStatus>(AssistantStatus.IDLE);
@@ -64,6 +62,8 @@ const App: React.FC = () => {
   const beepAudioRef = useRef<HTMLAudioElement>(null);
   const responseAudioRef = useRef<HTMLAudioElement>(null);
   const audioUnlockedRef = useRef<boolean>(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -244,34 +244,45 @@ const App: React.FC = () => {
 
   const unlockAudio = useCallback(() => {
     if (audioUnlockedRef.current) return;
-    console.log("Attempting to unlock audio context for mobile...");
 
+    console.log("Attempting to unlock Web Audio API context for mobile...");
     try {
-      const responseAudio = responseAudioRef.current;
-      const beepAudio = beepAudioRef.current;
-
-      // Prime both audio elements by loading them.
-      if (beepAudio) beepAudio.load();
-      if (responseAudio) {
-        // Playing and pausing a silent sound on the main audio element "primes" it
-        // for later playback that isn't directly inside a user interaction.
-        responseAudio.src = SILENT_AUDIO;
-        const playPromise = responseAudio.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                responseAudio.pause();
-                // By not clearing the src, we keep the audio element "primed",
-                // which can help with playback reliability on mobile browsers.
-            }).catch(error => {
-                console.warn('Silent audio play() failed, but user interaction was captured.', error);
-            });
+      if (!audioContextRef.current) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          audioContextRef.current = new AudioContext();
+        } else {
+          console.error("Web Audio API is not supported in this browser.");
+          return;
         }
       }
-      // Mark as unlocked after the user's first click, regardless of play() success.
-      // The interaction itself is what matters for browsers.
+
+      const audioContext = audioContextRef.current;
+
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          console.log("AudioContext resumed successfully.");
+        }).catch(err => {
+          console.error("Failed to resume AudioContext:", err);
+        });
+      }
+
+      const buffer = audioContext.createBuffer(1, 1, 22050);
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.start(0);
+
+      const responseAudio = responseAudioRef.current;
+      const beepAudio = beepAudioRef.current;
+      if (beepAudio) beepAudio.load();
+      if (responseAudio) responseAudio.load();
+
       audioUnlockedRef.current = true;
+      console.log("Audio unlock attempted.");
+
     } catch (e) {
-        console.error("Failed to unlock audio context:", e);
+      console.error("Failed to unlock audio context:", e);
     }
   }, []);
 
